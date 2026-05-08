@@ -18,8 +18,8 @@ import pytest
 import torch
 
 import flag_gems
-from benchmark.attri_util import FLOAT_DTYPES
-from benchmark.performance_utils import Benchmark, generate_tensor_input
+from benchmark.base import Benchmark, generate_tensor_input
+from benchmark.consts import FLOAT_DTYPES
 
 device = flag_gems.device
 
