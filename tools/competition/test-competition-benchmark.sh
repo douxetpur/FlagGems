@@ -11,6 +11,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_CODE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CODE_ROOT="${CODE_ROOT:-$DEFAULT_CODE_ROOT}"
+if [ ! -d "$CODE_ROOT" ]; then
+  echo "ERROR: CODE_ROOT does not exist: $CODE_ROOT"
+  exit 1
+fi
 CODE_ROOT="$(cd "$CODE_ROOT" && pwd)"
 cd "$CODE_ROOT"
 

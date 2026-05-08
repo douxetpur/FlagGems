@@ -184,15 +184,7 @@ else:
     PR_SCORES[$PR_ID]="-"
   fi
 
-  # Cleanup PR code to save disk space (only if inside workspace)
-  case "${PR_CODE_DIR}" in
-    "${WORKSPACE_ROOT}"/*)
-      rm -rf "${PR_CODE_DIR}"
-      ;;
-    *)
-      echo "WARNING: Skipping cleanup, PR_CODE_DIR ($PR_CODE_DIR) is not inside WORKSPACE_ROOT"
-      ;;
-  esac
+  # Keep PR code dir for inspection; clean up manually if needed
 done
 
 # Step 3: Print summary
