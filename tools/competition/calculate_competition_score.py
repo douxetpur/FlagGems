@@ -2,8 +2,8 @@
 """
 Competition Score Calculator
 
-Parses benchmark logs (from benchmark/conftest.py record logger, line format: [INFO] {json}).
-Uses each metric's latency_base as the baseline by default, no dependency on baseline_scores.json.
+Parses benchmark logs from FlagGems benchmark system (benchmark/conftest.py).
+Log format: [INFO] {json} where json contains BenchmarkResult data.
 
 Scoring dimensions (max 100):
   functional_correctness  30  Functional correctness (based on correctness test pass rate)
@@ -12,6 +12,23 @@ Scoring dimensions (max 100):
   adaptability            10  Open-source adaptability (default 0, manual override)
   compatibility           10  Cross-platform compatibility (default 0, manual override)
   readability             10  Code readability (default 0, manual override)
+
+Benchmark log format (from benchmark/attri_util.py BenchmarkResult):
+  {
+    "op_name": str,
+    "dtype": str,
+    "mode": str,
+    "level": str,
+    "result": [
+      {
+        "shape_detail": tuple,
+        "latency_base": float,  # PyTorch baseline latency (ms)
+        "latency": float,       # FlagGems latency (ms)
+        "speedup": float,       # latency_base / latency
+        ...
+      }
+    ]
+  }
 """
 
 import argparse
@@ -41,18 +58,61 @@ PERF_SPEEDUP_CEIL = 1.5  # speedup >= this value → full score
 FAILURE_PENALTY_SPEEDUP = 0.5
 
 # ---------------------------------------------------------------------------
-# Test coverage parameters
+# Test coverage parameters (expected test cases per operator)
 # ---------------------------------------------------------------------------
-DEFAULT_EXPECTED_CASES = 10  # Default expected number of test cases
+# Based on actual test parametrization in test_competition_ops.py
+# POINTWISE_SHAPES: 6 shapes (normal mode), FLOAT_DTYPES: 3 dtypes
+# SHAPES_2D: 3 shapes, UPSAMPLE_SHAPES: 5 shapes
+# SCATTER_SHAPES: 2 shapes, POOL3D_SHAPES: 2 shapes
+EXPECTED_TEST_CASES = {
+    "log10": 36,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × 2 tests (normal + out)
+    "logaddexp": 36,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × 2 tests
+    "cosh": 18,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3)
+    "gcd": 6,  # POINTWISE_SHAPES (6) × 1 dtype (int32)
+    "tril": 27,  # SHAPES_2D (3) × FLOAT_DTYPES (3) × diagonal (3)
+    "roll": 18,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3)
+    "leaky_relu": 54,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × negative_slope (3)
+    "asinh": 18,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3)
+    "upsample_nearest2d": 60,  # scale (4) × UPSAMPLE_SHAPES (5) × FLOAT_DTYPES (3)
+    "scatter_reduce": 30,  # SCATTER_SHAPES (2) × FLOAT_DTYPES (3) × reduce (5)
+    "median": 9,  # SHAPES_2D (3) × FLOAT_DTYPES (3)
+    "smooth_l1_loss": 54,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × reduction (3)
+    "pixel_shuffle": 9,  # PIXEL_SHUFFLE_CONFIGS (3) × FLOAT_DTYPES (3)
+    "conv_transpose2d": 3,  # CONV_TRANSPOSE2D_CONFIGS (3) × 1 dtype (float32)
+    "avg_pool3d": 12,  # POOL3D_SHAPES (2) × FLOAT_DTYPES (3) × kernel_size (2)
+    "max_pool3d": 12,  # POOL3D_SHAPES (2) × FLOAT_DTYPES (3) × kernel_size (2)
+    "chunk_gated_delta_rule": 3,  # T (3)
+    "svd": 4,  # SVD_SHAPES (4) × 1 dtype (float32)
+    "ctc_loss": 2,  # CTC_CONFIGS (2) × 1 dtype (float32)
+    "grid_sample": 24,  # GRID_SAMPLE_CONFIGS (2) × FLOAT_DTYPES (3) × mode (2) × padding_mode (2)
+}
+DEFAULT_EXPECTED_CASES = 10  # Fallback for unknown operators
 
 
 # ---------------------------------------------------------------------------
 # Benchmark log parsing
 # ---------------------------------------------------------------------------
 def parse_benchmark_log(log_file: Path) -> List[Dict]:
+    """Parse benchmark log file from FlagGems benchmark system.
+
+    Expected format: [INFO] {json}
+    Where json is a BenchmarkResult object serialized to JSON with fields:
+      - op_name: str
+      - dtype: str
+      - mode: str (kernel/operator/wrapper)
+      - level: str (core/comprehensive)
+      - result: List[BenchmarkMetrics] with fields:
+          - shape_detail: tuple
+          - latency_base: float (ms)
+          - latency: float (ms)
+          - speedup: float
+          - gbps_base: float (optional)
+          - gbps: float (optional)
+          - error_msg: str (optional)
+    """
     results: List[Dict] = []
     with open(log_file, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_no, line in enumerate(f, 1):
             line = line.strip()
             if not line or not line.startswith("[INFO]"):
                 continue
@@ -60,10 +120,20 @@ def parse_benchmark_log(log_file: Path) -> List[Dict]:
             try:
                 data = json.loads(json_str)
             except json.JSONDecodeError as e:
-                print(f"Warning: Failed to parse line: {e}", file=sys.stderr)
+                print(
+                    f"Warning: Failed to parse line {line_no}: {e}",
+                    file=sys.stderr,
+                )
                 continue
-            if "op_name" in data:
+            # Validate that this is a benchmark result (has op_name and result fields)
+            if "op_name" in data and "result" in data:
                 results.append(data)
+            elif "op_name" in data:
+                # Query mode result (no actual benchmark data)
+                print(
+                    f"Info: Skipping query-mode result for {data.get('op_name')}",
+                    file=sys.stderr,
+                )
     return results
 
 
@@ -179,22 +249,39 @@ def score_test_coverage(total_cases: int, expected_cases: int) -> float:
     return round(DIMENSION_MAX["test_coverage"] * ratio, 2)
 
 
+def get_expected_cases(
+    task_id: Optional[str] = None, fallback: int = DEFAULT_EXPECTED_CASES
+) -> int:
+    """Get expected test case count for a given task.
+
+    Looks up the per-operator expected count from EXPECTED_TEST_CASES.
+    Falls back to the provided fallback value if the task is unknown.
+    """
+    if task_id and task_id in EXPECTED_TEST_CASES:
+        return EXPECTED_TEST_CASES[task_id]
+    return fallback
+
+
 def calculate_dimension_scores(
     *,
     correctness_passed: int,
     correctness_total: int,
     geometric_mean_speedup: float,
     expected_cases: int = DEFAULT_EXPECTED_CASES,
+    task_id: Optional[str] = None,
     override_adaptability: Optional[float] = None,
     override_compatibility: Optional[float] = None,
     override_readability: Optional[float] = None,
 ) -> Dict[str, float]:
+    # Use per-operator expected cases if task_id is provided
+    effective_expected = get_expected_cases(task_id, expected_cases)
+
     scores = {
         "functional_correctness": score_functional_correctness(
             correctness_passed, correctness_total
         ),
         "performance": score_performance(geometric_mean_speedup),
-        "test_coverage": score_test_coverage(correctness_total, expected_cases),
+        "test_coverage": score_test_coverage(correctness_total, effective_expected),
         "adaptability": _clamp(
             override_adaptability if override_adaptability is not None else 0.0,
             0.0,
@@ -229,6 +316,9 @@ def main() -> int:
     parser.add_argument("--pr-title", type=str, default="", help="PR title")
     parser.add_argument("--pr-author", type=str, default="", help="PR author")
     parser.add_argument("--commit-sha", type=str, default="", help="Commit SHA")
+    parser.add_argument(
+        "--task-id", type=str, default=None, help="Task ID (operator name)"
+    )
     parser.add_argument("--correctness-failed", action="store_true")
 
     # Correctness test statistics
@@ -245,12 +335,12 @@ def main() -> int:
         help="Total number of correctness tests",
     )
 
-    # Expected number of test cases for coverage
+    # Expected number of test cases for coverage (optional override)
     parser.add_argument(
         "--expected-cases",
         type=int,
-        default=DEFAULT_EXPECTED_CASES,
-        help="Expected number of test cases for test_coverage scoring",
+        default=None,
+        help="Expected number of test cases (overrides per-operator lookup)",
     )
 
     # Manual override dimensions
@@ -275,12 +365,19 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    # Determine expected cases: explicit override > per-operator lookup > default
+    if args.expected_cases is not None:
+        expected_cases = args.expected_cases
+    else:
+        expected_cases = get_expected_cases(args.task_id, DEFAULT_EXPECTED_CASES)
+
     if args.correctness_failed:
         dim_scores = calculate_dimension_scores(
             correctness_passed=0,
             correctness_total=max(args.correctness_total, 1),
             geometric_mean_speedup=0.0,
-            expected_cases=args.expected_cases,
+            expected_cases=expected_cases,
+            task_id=args.task_id,
             override_adaptability=args.override_adaptability,
             override_compatibility=args.override_compatibility,
             override_readability=args.override_readability,
@@ -293,6 +390,8 @@ def main() -> int:
             "pr_title": args.pr_title,
             "pr_author": args.pr_author,
             "commit_sha": args.commit_sha,
+            "task_id": args.task_id,
+            "expected_test_cases": expected_cases,
             "correctness": {
                 "passed": False,
                 "total": args.correctness_total,
@@ -327,7 +426,8 @@ def main() -> int:
         correctness_passed=args.correctness_passed,
         correctness_total=args.correctness_total,
         geometric_mean_speedup=perf_data["geometric_mean_speedup"],
-        expected_cases=args.expected_cases,
+        expected_cases=expected_cases,
+        task_id=args.task_id,
         override_adaptability=args.override_adaptability,
         override_compatibility=args.override_compatibility,
         override_readability=args.override_readability,
@@ -340,6 +440,8 @@ def main() -> int:
         "pr_title": args.pr_title,
         "pr_author": args.pr_author,
         "commit_sha": args.commit_sha,
+        "task_id": args.task_id,
+        "expected_test_cases": expected_cases,
         "correctness": {
             "passed": True,
             "total": args.correctness_total,

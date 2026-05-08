@@ -1,14 +1,30 @@
 """
 Competition Correctness Tests
 
-为 tasks.yaml 中定义的 20 个竞赛算子提供正确性测试。
-每个 test_accuracy_<op> 函数对应 tasks.yaml 中的一个 correctness_tests 条目。
+Provides correctness tests for the 20 competition operators defined in tasks.yaml.
+Each test_accuracy_<op> function corresponds to a correctness_tests entry in tasks.yaml.
+
+Test conventions (aligned with master branch tests/ directory):
+  - Use @pytest.mark.competition for all competition tests
+  - Use @pytest.mark.<op_name> for per-operator filtering
+  - Parametrize with shape × dtype (and additional params where applicable)
+  - Use gems_assert_close() for floating-point comparison
+  - Use gems_assert_equal() for exact comparison (integer ops)
+  - Use to_reference(inp, True) when gradients are needed, to_reference(inp) otherwise
+  - Use flag_gems.use_gems() context manager for FlagGems execution
 """
 
 import pytest
 import torch
 
 import flag_gems
+import tests.conftest as tests_conftest
+
+if not hasattr(tests_conftest, "TO_CPU"):
+    tests_conftest.TO_CPU = False
+if not hasattr(tests_conftest, "QUICK_MODE"):
+    tests_conftest.QUICK_MODE = False
+
 from tests.accuracy_utils import (
     FLOAT_DTYPES,
     POINTWISE_SHAPES,
@@ -27,6 +43,8 @@ SHAPES_GENERAL = [(1024, 1024), (20, 320, 15), (16, 128, 64, 60)]
 # ============================================================
 
 
+@pytest.mark.log10
+@pytest.mark.svd
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -41,6 +59,7 @@ def test_accuracy_log10(shape, dtype):
     gems_assert_close(res_out, ref_out, dtype)
 
 
+@pytest.mark.log10
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -62,6 +81,7 @@ def test_accuracy_log10_out(shape, dtype):
 # ============================================================
 
 
+@pytest.mark.logaddexp
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -78,6 +98,7 @@ def test_accuracy_logaddexp(shape, dtype):
     gems_assert_close(res_out, ref_out, dtype)
 
 
+@pytest.mark.logaddexp
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -101,6 +122,7 @@ def test_accuracy_logaddexp_out(shape, dtype):
 # ============================================================
 
 
+@pytest.mark.cosh
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -120,6 +142,7 @@ def test_accuracy_cosh(shape, dtype):
 # ============================================================
 
 
+@pytest.mark.gcd
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.int32])
@@ -141,6 +164,7 @@ def test_accuracy_gcd(shape, dtype):
 # ============================================================
 
 
+@pytest.mark.tril
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", SHAPES_2D)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -161,6 +185,7 @@ def test_accuracy_tril(shape, dtype, diagonal):
 # ============================================================
 
 
+@pytest.mark.roll
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -183,6 +208,7 @@ def test_accuracy_roll(shape, dtype):
 # ============================================================
 
 
+@pytest.mark.leaky_relu
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -203,6 +229,7 @@ def test_accuracy_leaky_relu(shape, dtype, negative_slope):
 # ============================================================
 
 
+@pytest.mark.asinh
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -217,6 +244,7 @@ def test_accuracy_asinh(shape, dtype):
     gems_assert_close(res_out, ref_out, dtype)
 
 
+@pytest.mark.upsample_nearest2d
 @pytest.mark.competition
 @pytest.mark.parametrize("scale", [(2, 2), (2.1, 3.7), (1.3, 5.1), (0.3, 0.5)])
 @pytest.mark.parametrize("shape", UPSAMPLE_SHAPES)
@@ -241,6 +269,7 @@ def test_accuracy_upsample_nearest2d(dtype, shape, scale):
 SCATTER_SHAPES = [(256, 256), (1024, 1024)]
 
 
+@pytest.mark.scatter_reduce
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", SCATTER_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -269,6 +298,7 @@ def test_accuracy_scatter_reduce(shape, dtype, reduce):
 # ============================================================
 
 
+@pytest.mark.median
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", SHAPES_2D)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -288,6 +318,7 @@ def test_accuracy_median(shape, dtype):
 # ============================================================
 
 
+@pytest.mark.smooth_l1_loss
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POINTWISE_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -318,6 +349,7 @@ PIXEL_SHUFFLE_CONFIGS = [
 ]
 
 
+@pytest.mark.pixel_shuffle
 @pytest.mark.competition
 @pytest.mark.parametrize("shape, upscale_factor", PIXEL_SHUFFLE_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -344,6 +376,7 @@ CONV_TRANSPOSE2D_CONFIGS = [
 ]
 
 
+@pytest.mark.conv_transpose2d
 @pytest.mark.competition
 @pytest.mark.parametrize(
     "n, c_in, h, w, c_out, k, stride, padding, groups", CONV_TRANSPOSE2D_CONFIGS
@@ -380,6 +413,7 @@ POOL3D_SHAPES = [
 ]
 
 
+@pytest.mark.avg_pool3d
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POOL3D_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -400,6 +434,7 @@ def test_accuracy_avg_pool3d(shape, dtype, kernel_size):
 # ============================================================
 
 
+@pytest.mark.max_pool3d
 @pytest.mark.competition
 @pytest.mark.parametrize("shape", POOL3D_SHAPES)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -420,6 +455,7 @@ def test_accuracy_max_pool3d(shape, dtype, kernel_size):
 # ============================================================
 
 
+@pytest.mark.chunk_gated_delta_rule
 @pytest.mark.competition
 @pytest.mark.skipif(flag_gems.device != "cuda", reason="requires CUDA")
 @pytest.mark.parametrize("T", [1, 64, 256])
@@ -527,6 +563,7 @@ CTC_CONFIGS = [
 ]
 
 
+@pytest.mark.ctc_loss
 @pytest.mark.competition
 @pytest.mark.parametrize("T, N, C", CTC_CONFIGS)
 @pytest.mark.parametrize("dtype", [torch.float32])
@@ -566,6 +603,7 @@ GRID_SAMPLE_CONFIGS = [
 ]
 
 
+@pytest.mark.grid_sample
 @pytest.mark.competition
 @pytest.mark.parametrize("n, c, h_in, w_in, h_out, w_out", GRID_SAMPLE_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)

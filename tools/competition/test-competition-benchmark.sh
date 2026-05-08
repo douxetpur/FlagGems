@@ -19,6 +19,14 @@ COMPETITION_ROOT="${COMPETITION_ROOT:-$DEFAULT_COMPETITION_ROOT}"
 COMPETITION_ROOT="$(cd "$COMPETITION_ROOT" && pwd)"
 
 TASKS_YAML="${TASKS_YAML:-$COMPETITION_ROOT/tasks.yaml}"
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python)"
+else
+  echo "python3 or python not found in PATH"
+  exit 127
+fi
 
 PR_TITLE="${PR_TITLE:-${GITHUB_PR_TITLE:-}}"
 CHANGED_FILES="${CHANGED_FILES:-}"
@@ -39,20 +47,22 @@ COMPETITION_REPO_ROOT="$(cd "$COMPETITION_ROOT/../.." && pwd)"
 
 # Prefer PR code ($CODE_ROOT) on PYTHONPATH even when the authoritative baseline
 # is a full repository checkout.
-PYTEST_PYTHONPATH="$CODE_ROOT:$COMPETITION_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+PYTEST_PYTHONPATH="$CODE_ROOT/src:$CODE_ROOT:$COMPETITION_REPO_ROOT/src:$COMPETITION_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # If the authoritative repo is checked out under CODE_ROOT (e.g. CODE_ROOT/authoritative),
 # use relative paths for pytest arguments to avoid overly long / sensitive log filenames
 # generated from invocation args.
-REL_COMPETITION_REPO_ROOT="."
+REL_COMPETITION_REPO_ROOT="$COMPETITION_REPO_ROOT"
 if [[ "$COMPETITION_REPO_ROOT" == "$CODE_ROOT/"* ]]; then
   REL_COMPETITION_REPO_ROOT="${COMPETITION_REPO_ROOT#"$CODE_ROOT/"}"
+elif [[ "$COMPETITION_REPO_ROOT" == "$CODE_ROOT" ]]; then
+  REL_COMPETITION_REPO_ROOT="."
 fi
 
 run_competition_py() {
   local script_path="$1"
   shift
-  PYTHONPATH="$COMPETITION_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" python "$script_path" "$@"
+  PYTHONPATH="$CODE_ROOT/src:$CODE_ROOT:$COMPETITION_REPO_ROOT/src:$COMPETITION_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" "$script_path" "$@"
 }
 
 resolve_test_spec() {
@@ -126,16 +136,10 @@ for TASK_ID in "${TASK_ID_LIST[@]}"; do
   done
 
   CORRECTNESS_PYTEST_ARGS=()
-  for test_case in "${CORRECTNESS_TESTS[@]}"; do
-    if [[ "$test_case" == tools/competition/* ]]; then
-      CORRECTNESS_PYTEST_ARGS=(-p tests.conftest)
-      break
-    fi
-  done
 
   BENCHMARK_PYTEST_ARGS=()
   for test_case in "${BENCHMARK_TESTS[@]}"; do
-    if [[ "$test_case" == tools/competition/* ]]; then
+    if [[ "$test_case" == *"tools/competition/"* ]] || [[ "$test_case" == *"/tools/competition/"* ]]; then
       BENCHMARK_PYTEST_ARGS=(-p benchmark.conftest)
       break
     fi
@@ -153,19 +157,27 @@ for TASK_ID in "${TASK_ID_LIST[@]}"; do
   PYTHONPATH="$PYTEST_PYTHONPATH" pytest -v "${CORRECTNESS_PYTEST_ARGS[@]}" --junitxml="$CORRECTNESS_XML" "${CORRECTNESS_TESTS[@]}" || CORRECTNESS_EXIT=$?
 
   # Extract passed/total from junitxml
-  CORRECTNESS_STATS="$(python -c "
+  CORRECTNESS_STATS="$("$PYTHON_BIN" -c "
 import xml.etree.ElementTree as ET, sys
 try:
     root = ET.parse('$CORRECTNESS_XML').getroot()
-    tests = int(root.attrib.get('tests', 0))
-    failures = int(root.attrib.get('failures', 0))
-    errors = int(root.attrib.get('errors', 0))
-    skipped = int(root.attrib.get('skipped', 0))
+    suites = [root] if root.tag == 'testsuite' else list(root.iter('testsuite'))
+    if suites:
+        tests = sum(int(suite.attrib.get('tests', 0)) for suite in suites)
+        failures = sum(int(suite.attrib.get('failures', 0)) for suite in suites)
+        errors = sum(int(suite.attrib.get('errors', 0)) for suite in suites)
+        skipped = sum(int(suite.attrib.get('skipped', 0)) for suite in suites)
+    else:
+        tests = int(root.attrib.get('tests', 0))
+        failures = int(root.attrib.get('failures', 0))
+        errors = int(root.attrib.get('errors', 0))
+        skipped = int(root.attrib.get('skipped', 0))
     passed = tests - failures - errors - skipped
     print(f'{passed} {tests}')
 except Exception:
     print('0 0')
 ")"
+
   read -r CORRECTNESS_PASSED CORRECTNESS_TOTAL <<< "$CORRECTNESS_STATS"
   echo "[Task ${TASK_ID}] Correctness: ${CORRECTNESS_PASSED}/${CORRECTNESS_TOTAL} passed"
 
@@ -178,15 +190,16 @@ except Exception:
       --pr-title "$PR_TITLE" \
       --pr-author "$PR_AUTHOR" \
       --commit-sha "$COMMIT_SHA" \
+      --task-id "$TASK_ID" \
       --correctness-failed \
       --correctness-passed "$CORRECTNESS_PASSED" \
       --correctness-total "$CORRECTNESS_TOTAL"
 
-    SCORE="$(python -c "import json; print(json.load(open(r'$SCORE_FILE', 'r', encoding='utf-8'))['total_score'])")"
+    SCORE="$("$PYTHON_BIN" -c "import json; print(json.load(open(r'$SCORE_FILE', 'r', encoding='utf-8'))['total_score'])")"
   else
     echo "Correctness passed for task_id=$TASK_ID"
 
-    rm -f result_*.log 2>/dev/null || true
+    rm -f "$CODE_ROOT"/result*.log "$COMPETITION_REPO_ROOT"/result*.log 2>/dev/null || true
 
     echo ""
     echo "[Task ${TASK_ID}] Running benchmark tests"
@@ -201,7 +214,14 @@ except Exception:
       --record=log \
       "${BENCHMARK_TESTS[@]}"
 
-    LATEST_LOG="$(ls -t result_*.log 2>/dev/null | head -1 || true)"
+    LATEST_LOG="$(
+      {
+        ls -t "$CODE_ROOT"/result*.log 2>/dev/null || true
+        if [ "$COMPETITION_REPO_ROOT" != "$CODE_ROOT" ]; then
+          ls -t "$COMPETITION_REPO_ROOT"/result*.log 2>/dev/null || true
+        fi
+      } | head -1
+    )"
     if [ -z "$LATEST_LOG" ]; then
       echo "ERROR: No benchmark log file generated"
       exit 1
@@ -216,17 +236,18 @@ except Exception:
       --pr-title "$PR_TITLE" \
       --pr-author "$PR_AUTHOR" \
       --commit-sha "$COMMIT_SHA" \
+      --task-id "$TASK_ID" \
       --correctness-passed "$CORRECTNESS_PASSED" \
       --correctness-total "$CORRECTNESS_TOTAL"
 
-    SCORE="$(python -c "import json; print(json.load(open(r'$SCORE_FILE', 'r', encoding='utf-8'))['total_score'])")"
+    SCORE="$("$PYTHON_BIN" -c "import json; print(json.load(open(r'$SCORE_FILE', 'r', encoding='utf-8'))['total_score'])")"
   fi
 
   echo "[Task ${TASK_ID}] Score file: $SCORE_FILE"
   echo "[Task ${TASK_ID}] Total score: $SCORE"
 
   # Extract score_details JSON for upload
-  SCORE_DETAILS="$(python -c "import json; print(json.dumps(json.load(open(r'$SCORE_FILE', 'r', encoding='utf-8')).get('score_details', {})))")"
+  SCORE_DETAILS="$("$PYTHON_BIN" -c "import json; print(json.dumps(json.load(open(r'$SCORE_FILE', 'r', encoding='utf-8')).get('score_details', {})))")"
 
   if [ "$UPLOAD_SCORE" = "1" ]; then
     run_competition_py "$COMPETITION_ROOT/upload_score.py" \

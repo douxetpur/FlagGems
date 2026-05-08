@@ -3,6 +3,13 @@ Competition Performance Benchmark Tests
 
 Provides performance tests for the 20 competition operators defined in tasks.yaml.
 Each test_perf_<op> function corresponds to a benchmark_tests entry in tasks.yaml.
+
+Benchmark conventions (aligned with master branch benchmark/ directory):
+  - Each operator has a custom Benchmark subclass with set_more_shapes() and get_input_iter()
+  - Use @pytest.mark.competition for all competition benchmarks
+  - Use @pytest.mark.<op_name> for per-operator filtering
+  - Benchmark class instantiated with op_name, torch_op, and dtypes
+  - Shapes designed to cover different tensor sizes (small to large)
 """
 
 from typing import Generator
@@ -33,6 +40,7 @@ class Log10Benchmark(Benchmark):
             yield inp,
 
 
+@pytest.mark.log10
 @pytest.mark.competition
 def test_perf_log10():
     bench = Log10Benchmark(
@@ -61,6 +69,7 @@ class LogaddexpBenchmark(Benchmark):
             yield inp1, inp2
 
 
+@pytest.mark.logaddexp
 @pytest.mark.competition
 def test_perf_logaddexp():
     bench = LogaddexpBenchmark(
@@ -88,6 +97,7 @@ class CoshBenchmark(Benchmark):
             yield inp,
 
 
+@pytest.mark.cosh
 @pytest.mark.competition
 def test_perf_cosh():
     bench = CoshBenchmark(
@@ -120,6 +130,7 @@ class GcdBenchmark(Benchmark):
             yield inp1, inp2
 
 
+@pytest.mark.gcd
 @pytest.mark.competition
 def test_perf_gcd():
     bench = GcdBenchmark(
@@ -136,6 +147,8 @@ def test_perf_gcd():
 
 
 class TrilBenchmark(Benchmark):
+    DEFAULT_SHAPES = [(64, 64), (4096, 4096), (64, 512, 512), (1024, 1024, 1024)]
+
     def set_more_shapes(self):
         return [(256, 256), (1024, 1024), (4096, 4096)]
 
@@ -145,6 +158,7 @@ class TrilBenchmark(Benchmark):
             yield inp,
 
 
+@pytest.mark.tril
 @pytest.mark.competition
 def test_perf_tril():
     bench = TrilBenchmark(
@@ -174,6 +188,7 @@ class RollBenchmark(Benchmark):
             yield inp, {"shifts": shifts, "dims": dims}
 
 
+@pytest.mark.roll
 @pytest.mark.competition
 def test_perf_roll():
     bench = RollBenchmark(
@@ -201,6 +216,7 @@ class LeakyReluBenchmark(Benchmark):
             yield inp, {"negative_slope": 0.01}
 
 
+@pytest.mark.leaky_relu
 @pytest.mark.competition
 def test_perf_leaky_relu():
     bench = LeakyReluBenchmark(
@@ -228,6 +244,7 @@ class AsinhBenchmark(Benchmark):
             yield inp,
 
 
+@pytest.mark.asinh
 @pytest.mark.competition
 def test_perf_asinh():
     bench = AsinhBenchmark(
@@ -269,6 +286,7 @@ class UpsampleNearest2dCompBenchmark(Benchmark):
             },
 
 
+@pytest.mark.upsample_nearest2d
 @pytest.mark.competition
 def test_perf_upsample_nearest2d():
     bench = UpsampleNearest2dCompBenchmark(
@@ -304,6 +322,7 @@ class ScatterReduceBenchmark(Benchmark):
             yield inp, -1, index, src, {"reduce": "sum"}
 
 
+@pytest.mark.scatter_reduce
 @pytest.mark.competition
 def test_perf_scatter_reduce():
     bench = ScatterReduceBenchmark(
@@ -332,6 +351,7 @@ class MedianBenchmark(Benchmark):
                 yield inp,
 
 
+@pytest.mark.median
 @pytest.mark.competition
 def test_perf_median():
     bench = MedianBenchmark(
@@ -358,6 +378,7 @@ class SmoothL1LossBenchmark(Benchmark):
             yield inp, target
 
 
+@pytest.mark.smooth_l1_loss
 @pytest.mark.competition
 def test_perf_smooth_l1_loss():
     bench = SmoothL1LossBenchmark(
@@ -394,6 +415,7 @@ class PixelShuffleBenchmark(Benchmark):
             yield inp, r
 
 
+@pytest.mark.pixel_shuffle
 @pytest.mark.competition
 def test_perf_pixel_shuffle():
     bench = PixelShuffleBenchmark(
@@ -440,6 +462,7 @@ class ConvTranspose2dBenchmark(Benchmark):
             },
 
 
+@pytest.mark.conv_transpose2d
 @pytest.mark.competition
 def test_perf_conv_transpose2d():
     bench = ConvTranspose2dBenchmark(
@@ -475,6 +498,7 @@ class AvgPool3dBenchmark(Benchmark):
             yield inp, {"kernel_size": 3, "stride": 2, "padding": 1}
 
 
+@pytest.mark.avg_pool3d
 @pytest.mark.competition
 def test_perf_avg_pool3d():
     bench = AvgPool3dBenchmark(
@@ -509,6 +533,7 @@ class MaxPool3dBenchmark(Benchmark):
             yield inp, {"kernel_size": 3, "stride": 2, "padding": 1}
 
 
+@pytest.mark.max_pool3d
 @pytest.mark.competition
 def test_perf_max_pool3d():
     bench = MaxPool3dBenchmark(
@@ -593,6 +618,7 @@ class ChunkGatedDeltaRuleBenchmark(Benchmark):
         )
 
 
+@pytest.mark.chunk_gated_delta_rule
 @pytest.mark.competition
 @pytest.mark.skipif(flag_gems.device != "cuda", reason="requires CUDA")
 def test_perf_chunk_gated_delta_rule():
@@ -633,6 +659,7 @@ class SvdBenchmark(Benchmark):
             yield inp,
 
 
+@pytest.mark.svd
 @pytest.mark.competition
 def test_perf_svd():
     bench = SvdBenchmark(
@@ -678,6 +705,7 @@ class CtcLossBenchmark(Benchmark):
             yield log_probs, targets, input_lengths, target_lengths
 
 
+@pytest.mark.ctc_loss
 @pytest.mark.competition
 def test_perf_ctc_loss():
     bench = CtcLossBenchmark(
@@ -719,6 +747,7 @@ class GridSampleBenchmark(Benchmark):
             yield inp, grid
 
 
+@pytest.mark.grid_sample
 @pytest.mark.competition
 def test_perf_grid_sample():
     bench = GridSampleBenchmark(
