@@ -30,7 +30,7 @@ if [ -z "$PR_ID" ] || [ -z "$PR_REPO_URL" ]; then
   echo "Environment variables:"
   echo "  TASK_IDS              Task IDs to test (space-separated, e.g., 'log10 cosh')"
   echo "  PR_TITLE              PR title (for auto task detection)"
-  echo "  WORKSPACE_ROOT        Root directory for test workspace (default: /mnt/d/workspace/sx)"
+  echo "  WORKSPACE_ROOT        Root directory for test workspace (default: <repo_root>/workspace)"
   echo "  AUTHORITATIVE_BRANCH  Branch of trusted harness (default: competition-ci-trusted-harness)"
   echo "  AUTHORITATIVE_REPO    Git URL of trusted harness (default: https://github.com/douxetpur/FlagGems.git)"
   echo "  WARMUP                Warmup iterations (default: 3)"
@@ -44,7 +44,8 @@ if [ -z "$PR_ID" ] || [ -z "$PR_REPO_URL" ]; then
 fi
 
 # Configuration
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/d/workspace/sx}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)/workspace}"
 AUTHORITATIVE_REPO="${AUTHORITATIVE_REPO:-https://github.com/douxetpur/FlagGems.git}"
 AUTHORITATIVE_BRANCH="${AUTHORITATIVE_BRANCH:-competition-ci-trusted-harness}"
 KEEP_WORKSPACE="${KEEP_WORKSPACE:-0}"
