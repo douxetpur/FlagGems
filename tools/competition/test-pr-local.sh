@@ -18,14 +18,14 @@ set -euo pipefail
 
 # Parse arguments
 PR_ID="${1:-}"
-PR_REPO_URL="${2:-}"
+PR_REPO_URL="${2:-https://github.com/flagos-ai/FlagGems.git}"
 
-if [ -z "$PR_ID" ] || [ -z "$PR_REPO_URL" ]; then
-  echo "Usage: $0 <pr_id> <pr_repo_url> [options]"
+if [ -z "$PR_ID" ]; then
+  echo "Usage: $0 <pr_id> [pr_repo_url]"
   echo ""
   echo "Arguments:"
   echo "  pr_id         PR number"
-  echo "  pr_repo_url   Git URL of the PR repository (e.g., https://github.com/user/FlagGems.git)"
+  echo "  pr_repo_url   Git URL of the PR repository (default: https://github.com/flagos-ai/FlagGems.git)"
   echo ""
   echo "Environment variables:"
   echo "  TASK_IDS              Task IDs to test (space-separated, e.g., 'log10 cosh')"
@@ -39,7 +39,8 @@ if [ -z "$PR_ID" ] || [ -z "$PR_REPO_URL" ]; then
   echo "  KEEP_WORKSPACE        Keep workspace after test (default: 0)"
   echo ""
   echo "Example:"
-  echo "  TASK_IDS='log10 cosh' ./test-pr-local.sh 123 https://github.com/contestant/FlagGems.git"
+  echo "  TASK_IDS='log10' ./test-pr-local.sh 123"
+  echo "  ./test-pr-local.sh 123 https://github.com/other-org/FlagGems.git"
   exit 2
 fi
 
