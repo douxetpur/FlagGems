@@ -35,7 +35,6 @@ if [ -z "$PR_ID" ]; then
   echo "  WARMUP                Warmup iterations (default: 3)"
   echo "  ITER                  Benchmark iterations (default: 10)"
   echo "  UPLOAD_SCORE          Upload score to server (default: 0)"
-  echo "  KEEP_WORKSPACE        Keep workspace after test (default: 0)"
   echo ""
   echo "Example:"
   echo "  TASK_IDS='log10' ./test-pr-local.sh 123"
@@ -48,7 +47,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}/workspace}"
 AUTHORITATIVE_DIR="${AUTHORITATIVE_DIR:-${REPO_ROOT}}"
-KEEP_WORKSPACE="${KEEP_WORKSPACE:-0}"
 
 # Test parameters
 TASK_IDS="${TASK_IDS:-}"
@@ -156,32 +154,6 @@ echo "Output files:"
 ls -lh "${PR_CODE_DIR}"/benchmark_result_pr*.log 2>/dev/null || echo "  (no benchmark logs)"
 ls -lh "${PR_CODE_DIR}"/score_pr*.json 2>/dev/null || echo "  (no score files)"
 ls -lh "${PR_CODE_DIR}"/correctness_pr*.xml 2>/dev/null || echo "  (no correctness reports)"
-
-# Cleanup
-if [ "$KEEP_WORKSPACE" = "0" ]; then
-  echo ""
-  echo "Cleaning up workspace..."
-
-  # Copy results to a persistent location
-  RESULTS_DIR="${WORKSPACE_ROOT}/results/pr${PR_ID}_${TIMESTAMP}"
-  mkdir -p "${RESULTS_DIR}"
-
-  cp "${PR_CODE_DIR}"/benchmark_result_pr*.log "${RESULTS_DIR}/" 2>/dev/null || true
-  cp "${PR_CODE_DIR}"/score_pr*.json "${RESULTS_DIR}/" 2>/dev/null || true
-  cp "${PR_CODE_DIR}"/correctness_pr*.xml "${RESULTS_DIR}/" 2>/dev/null || true
-
-  if [ -n "$(ls -A "${RESULTS_DIR}" 2>/dev/null)" ]; then
-    echo "✓ Results copied to: ${RESULTS_DIR}"
-  fi
-
-  cd "${WORKSPACE_ROOT}"
-  rm -rf "${TEST_WORKSPACE}"
-  echo "✓ Workspace cleaned up"
-else
-  echo ""
-  echo "Workspace preserved at: ${TEST_WORKSPACE}"
-  echo "To clean up manually: rm -rf ${TEST_WORKSPACE}"
-fi
 
 echo ""
 echo "=========================================="
