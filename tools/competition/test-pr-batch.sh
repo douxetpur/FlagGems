@@ -21,8 +21,7 @@ if [ $# -eq 0 ]; then
   echo "  TASK_IDS              Task IDs to test (space-separated)"
   echo "  PR_REPO_URL           PR repository URL (default: https://github.com/flagos-ai/FlagGems.git)"
   echo "  WORKSPACE_ROOT        Root directory for test workspace"
-  echo "  AUTHORITATIVE_BRANCH  Branch of trusted harness (default: competition-ci-trusted-harness)"
-  echo "  AUTHORITATIVE_REPO    Git URL of trusted harness (default: https://github.com/douxetpur/FlagGems.git)"
+  echo "  AUTHORITATIVE_DIR     Path to trusted harness repo (default: current repo root)"
   echo "  WARMUP                Warmup iterations (default: 3)"
   echo "  ITER                  Benchmark iterations (default: 10)"
   echo "  UPLOAD_SCORE          Upload score to server (default: 0)"
@@ -34,10 +33,10 @@ if [ $# -eq 0 ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)/workspace}"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}/workspace}"
 PR_REPO_URL="${PR_REPO_URL:-https://github.com/flagos-ai/FlagGems.git}"
-AUTHORITATIVE_REPO="${AUTHORITATIVE_REPO:-https://github.com/douxetpur/FlagGems.git}"
-AUTHORITATIVE_BRANCH="${AUTHORITATIVE_BRANCH:-competition-ci-trusted-harness}"
+AUTHORITATIVE_DIR="${AUTHORITATIVE_DIR:-${REPO_ROOT}}"
 
 TASK_IDS="${TASK_IDS:-}"
 WARMUP="${WARMUP:-3}"
@@ -48,7 +47,6 @@ PR_IDS=("$@")
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BATCH_DIR="${WORKSPACE_ROOT}/batch_${TIMESTAMP}"
 RESULTS_DIR="${BATCH_DIR}/results"
-AUTHORITATIVE_DIR="${BATCH_DIR}/authoritative"
 
 if command -v python3 >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python3)"
@@ -70,11 +68,13 @@ echo "=========================================="
 
 mkdir -p "${RESULTS_DIR}"
 
-# Step 1: Clone trusted evaluation harness (shared across all PRs)
+# Verify trusted harness
+if [ ! -f "${AUTHORITATIVE_DIR}/tools/competition/test-competition-benchmark.sh" ]; then
+  echo "ERROR: Trusted harness not found at ${AUTHORITATIVE_DIR}/tools/competition/"
+  exit 1
+fi
 echo ""
-echo "[Setup] Cloning trusted evaluation harness..."
-git clone --depth 1 --branch "${AUTHORITATIVE_BRANCH}" "${AUTHORITATIVE_REPO}" "${AUTHORITATIVE_DIR}"
-echo "Done."
+echo "[Setup] Using trusted harness: ${AUTHORITATIVE_DIR}"
 
 # Track results: PR_ID -> status, score
 declare -A PR_STATUS

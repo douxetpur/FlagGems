@@ -31,8 +31,7 @@ if [ -z "$PR_ID" ]; then
   echo "  TASK_IDS              Task IDs to test (space-separated, e.g., 'log10 cosh')"
   echo "  PR_TITLE              PR title (for auto task detection)"
   echo "  WORKSPACE_ROOT        Root directory for test workspace (default: <repo_root>/workspace)"
-  echo "  AUTHORITATIVE_BRANCH  Branch of trusted harness (default: competition-ci-trusted-harness)"
-  echo "  AUTHORITATIVE_REPO    Git URL of trusted harness (default: https://github.com/douxetpur/FlagGems.git)"
+  echo "  AUTHORITATIVE_DIR     Path to trusted harness repo (default: current repo root)"
   echo "  WARMUP                Warmup iterations (default: 3)"
   echo "  ITER                  Benchmark iterations (default: 10)"
   echo "  UPLOAD_SCORE          Upload score to server (default: 0)"
@@ -46,9 +45,9 @@ fi
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)/workspace}"
-AUTHORITATIVE_REPO="${AUTHORITATIVE_REPO:-https://github.com/douxetpur/FlagGems.git}"
-AUTHORITATIVE_BRANCH="${AUTHORITATIVE_BRANCH:-competition-ci-trusted-harness}"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}/workspace}"
+AUTHORITATIVE_DIR="${AUTHORITATIVE_DIR:-${REPO_ROOT}}"
 KEEP_WORKSPACE="${KEEP_WORKSPACE:-0}"
 
 # Test parameters
@@ -61,7 +60,6 @@ UPLOAD_SCORE="${UPLOAD_SCORE:-0}"
 # Workspace paths
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 TEST_WORKSPACE="${WORKSPACE_ROOT}/test_pr${PR_ID}_${TIMESTAMP}"
-AUTHORITATIVE_DIR="${TEST_WORKSPACE}/authoritative"
 PR_CODE_DIR="${TEST_WORKSPACE}/pr-code"
 
 echo "=========================================="
@@ -70,6 +68,7 @@ echo "=========================================="
 echo "PR ID: ${PR_ID}"
 echo "PR Repository: ${PR_REPO_URL}"
 echo "Task IDs: ${TASK_IDS:-auto-detect}"
+echo "Authoritative: ${AUTHORITATIVE_DIR}"
 echo "Workspace: ${TEST_WORKSPACE}"
 echo "=========================================="
 
@@ -77,19 +76,14 @@ echo "=========================================="
 mkdir -p "${TEST_WORKSPACE}"
 cd "${TEST_WORKSPACE}"
 
-# Step 1: Clone trusted evaluation harness
+# Step 1: Verify trusted evaluation harness
 echo ""
-echo "[Step 1/4] Cloning trusted evaluation harness..."
-echo "Repository: ${AUTHORITATIVE_REPO}"
-echo "Branch: ${AUTHORITATIVE_BRANCH}"
-
-git clone --depth 1 --branch "${AUTHORITATIVE_BRANCH}" "${AUTHORITATIVE_REPO}" authoritative
+echo "[Step 1/4] Verifying trusted evaluation harness..."
 if [ ! -f "${AUTHORITATIVE_DIR}/tools/competition/test-competition-benchmark.sh" ]; then
-  echo "ERROR: Trusted harness not found at ${AUTHORITATIVE_DIR}/tools/competition/test-competition-benchmark.sh"
+  echo "ERROR: Trusted harness not found at ${AUTHORITATIVE_DIR}/tools/competition/"
   exit 1
 fi
-
-echo "✓ Trusted harness cloned successfully"
+echo "✓ Trusted harness verified"
 
 # Step 2: Clone PR code
 echo ""
@@ -112,30 +106,9 @@ COMMIT_SHA=$(git rev-parse HEAD)
 echo "✓ PR code checked out successfully"
 echo "Commit SHA: ${COMMIT_SHA}"
 
-# Step 3: Verify trusted harness files
+# Step 3: Run competition benchmark
 echo ""
-echo "[Step 3/4] Verifying trusted harness files..."
-
-REQUIRED_FILES=(
-  "${AUTHORITATIVE_DIR}/tools/competition/tasks.yaml"
-  "${AUTHORITATIVE_DIR}/tools/competition/test_competition_ops.py"
-  "${AUTHORITATIVE_DIR}/tools/competition/test_competition_perf.py"
-  "${AUTHORITATIVE_DIR}/tools/competition/calculate_competition_score.py"
-  "${AUTHORITATIVE_DIR}/tools/competition/test-competition-benchmark.sh"
-)
-
-for file in "${REQUIRED_FILES[@]}"; do
-  if [ ! -f "$file" ]; then
-    echo "ERROR: Required file not found: $file"
-    exit 1
-  fi
-done
-
-echo "✓ All required files verified"
-
-# Step 4: Run competition benchmark
-echo ""
-echo "[Step 4/4] Running competition benchmark..."
+echo "[Step 3/3] Running competition benchmark..."
 echo "=========================================="
 
 cd "${PR_CODE_DIR}"
