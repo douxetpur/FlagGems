@@ -253,7 +253,4 @@ with open(os.path.join(results_dir, "summary.json"), "w") as f:
 print(f"\nJSON summary: {os.path.join(results_dir, 'summary.json')}")
 PYEOF
 
-# Cleanup authoritative dir
-rm -rf "${AUTHORITATIVE_DIR}"
-
 echo "Done."
