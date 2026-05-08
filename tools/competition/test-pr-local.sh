@@ -45,7 +45,7 @@ fi
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}/workspace}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}/../competition-workspace}"
 AUTHORITATIVE_DIR="${AUTHORITATIVE_DIR:-${REPO_ROOT}}"
 
 # Test parameters
