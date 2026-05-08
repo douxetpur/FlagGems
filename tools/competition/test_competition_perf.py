@@ -147,10 +147,11 @@ def test_perf_gcd():
 
 
 class TrilBenchmark(Benchmark):
-    DEFAULT_SHAPES = [(64, 64), (4096, 4096), (64, 512, 512), (1024, 1024, 1024)]
-
     def set_more_shapes(self):
-        return [(256, 256), (1024, 1024), (4096, 4096)]
+        return None
+
+    def set_shapes(self, shape_file_path=None):
+        self.shapes = [(256, 256), (1024, 1024), (4096, 4096)]
 
     def get_input_iter(self, cur_dtype) -> Generator:
         for shape in self.shapes:
