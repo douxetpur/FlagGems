@@ -35,8 +35,19 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}/../competition-workspace}"
+WORKSPACE_ROOT="$(mkdir -p "$WORKSPACE_ROOT" && cd "$WORKSPACE_ROOT" && pwd)"
 PR_REPO_URL="${PR_REPO_URL:-https://github.com/flagos-ai/FlagGems.git}"
 AUTHORITATIVE_DIR="${AUTHORITATIVE_DIR:-${REPO_ROOT}}"
+
+# Safety check: ensure workspace is not inside repo
+case "$WORKSPACE_ROOT" in
+  "$REPO_ROOT"*)
+    echo "ERROR: WORKSPACE_ROOT ($WORKSPACE_ROOT) is inside REPO_ROOT ($REPO_ROOT)"
+    echo "This could lead to accidental deletion of the repository."
+    echo "Please set WORKSPACE_ROOT to a location outside the repository."
+    exit 1
+    ;;
+esac
 
 TASK_IDS="${TASK_IDS:-}"
 WARMUP="${WARMUP:-3}"
@@ -173,8 +184,15 @@ else:
     PR_SCORES[$PR_ID]="-"
   fi
 
-  # Cleanup PR code to save disk space
-  rm -rf "${PR_CODE_DIR}"
+  # Cleanup PR code to save disk space (only if inside workspace)
+  case "${PR_CODE_DIR}" in
+    "${WORKSPACE_ROOT}"/*)
+      rm -rf "${PR_CODE_DIR}"
+      ;;
+    *)
+      echo "WARNING: Skipping cleanup, PR_CODE_DIR ($PR_CODE_DIR) is not inside WORKSPACE_ROOT"
+      ;;
+  esac
 done
 
 # Step 3: Print summary
