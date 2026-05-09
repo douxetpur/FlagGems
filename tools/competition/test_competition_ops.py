@@ -550,8 +550,12 @@ def test_accuracy_svd(shape, dtype):
     # SVD is numerically sensitive; use relaxed tolerance for singular values
     torch.testing.assert_close(res_S, ref_S.to(dtype), atol=1e-3, rtol=1e-4)
 
-    # Verify reconstruction: U @ diag(S) @ Vh ≈ input
-    reconstructed = res_U @ torch.diag_embed(res_S) @ res_Vh
+    # Verify reconstruction: U @ diag(S) @ Vh ≈ input (use reduced SVD)
+    m, n = shape[-2], shape[-1]
+    k = min(m, n)
+    res_U_k = res_U[..., :k]
+    res_Vh_k = res_Vh[..., :k, :]
+    reconstructed = res_U_k @ torch.diag_embed(res_S) @ res_Vh_k
     torch.testing.assert_close(reconstructed, inp, atol=1e-3, rtol=1e-4)
 
 
