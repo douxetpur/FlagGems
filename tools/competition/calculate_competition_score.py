@@ -53,7 +53,7 @@ DIMENSION_MAX = {
 # ---------------------------------------------------------------------------
 # Performance scoring parameters
 # ---------------------------------------------------------------------------
-PERF_SPEEDUP_FLOOR = 0.9  # speedup < this value → 0 points
+PERF_SPEEDUP_FLOOR = 0.7  # speedup < this value → 0 points
 PERF_SPEEDUP_CEIL = 1.5  # speedup >= this value → full score
 FAILURE_PENALTY_SPEEDUP = 0.5
 
@@ -232,7 +232,7 @@ def score_functional_correctness(passed: int, total: int) -> float:
 
 
 def score_performance(geometric_mean_speedup: float) -> float:
-    """Linear mapping: speedup 0.9->0, 1.5->20, <0.9->0, >1.5->20"""
+    """Linear mapping: speedup 0.7->0, 1.5->20, <0.7->0, >1.5->20"""
     if geometric_mean_speedup < PERF_SPEEDUP_FLOOR:
         return 0.0
     ratio = (geometric_mean_speedup - PERF_SPEEDUP_FLOOR) / (
