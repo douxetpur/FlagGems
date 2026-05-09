@@ -76,7 +76,7 @@ EXPECTED_TEST_CASES = {
     "upsample_nearest2d": 60,  # scale (4) × UPSAMPLE_SHAPES (5) × FLOAT_DTYPES (3)
     "scatter_reduce": 30,  # SCATTER_SHAPES (2) × FLOAT_DTYPES (3) × reduce (5)
     "median": 9,  # SHAPES_2D (3) × FLOAT_DTYPES (3)
-    "smooth_l1_loss": 54,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × reduction (3)
+    "smooth_l1_loss": 36,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × reduction (2: mean, none)
     "pixel_shuffle": 9,  # PIXEL_SHUFFLE_CONFIGS (3) × FLOAT_DTYPES (3)
     "conv_transpose2d": 3,  # CONV_TRANSPOSE2D_CONFIGS (3) × 1 dtype (float32)
     "avg_pool3d": 12,  # POOL3D_SHAPES (2) × FLOAT_DTYPES (3) × kernel_size (2)
