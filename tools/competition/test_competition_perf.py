@@ -341,7 +341,7 @@ def test_perf_scatter_reduce():
 
 class MedianBenchmark(Benchmark):
     def set_more_shapes(self):
-        return [(1024, 2**i) for i in range(0, 20, 4)]
+        return [(1024, 2**i) for i in range(0, 14, 2)]
 
     def get_input_iter(self, cur_dtype) -> Generator:
         for shape in self.shapes:
