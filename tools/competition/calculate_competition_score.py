@@ -74,7 +74,7 @@ EXPECTED_TEST_CASES = {
     "leaky_relu": 54,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × negative_slope (3)
     "asinh": 18,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3)
     "upsample_nearest2d": 60,  # scale (4) × UPSAMPLE_SHAPES (5) × FLOAT_DTYPES (3)
-    "scatter_reduce": 30,  # SCATTER_SHAPES (2) × FLOAT_DTYPES (3) × reduce (5)
+    "scatter_reduce": 22,  # 30 total - 8 skipped (sum/mean × fp16/bf16 × 2 shapes)
     "median": 9,  # SHAPES_2D (3) × FLOAT_DTYPES (3)
     "smooth_l1_loss": 36,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × reduction (2: mean, none)
     "pixel_shuffle": 9,  # PIXEL_SHUFFLE_CONFIGS (3) × FLOAT_DTYPES (3)
