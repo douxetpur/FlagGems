@@ -146,9 +146,10 @@ def calculate_speedup(pr_result: Dict) -> Optional[float]:
     Each shape contributes equally to the result, preventing large shapes
     (with higher absolute latency) from dominating the average.
 
-    Shapes that failed (e.g. OOM) are penalized with FAILURE_PENALTY_SPEEDUP
-    rather than silently skipped, so implementations with poor memory efficiency
-    receive a lower score instead of being excluded from evaluation entirely.
+    Scoring rules per shape:
+    - Both baseline and PR succeeded: use actual speedup ratio
+    - Baseline succeeded but PR failed: penalize with FAILURE_PENALTY_SPEEDUP
+    - Baseline also failed (or missing): skip shape entirely (not PR's fault)
     """
     pr_metrics = pr_result.get("result", [])
     if not pr_metrics:
@@ -156,19 +157,17 @@ def calculate_speedup(pr_result: Dict) -> Optional[float]:
 
     shape_speedups: List[float] = []
     for m in pr_metrics:
-        error_msg = m.get("error_msg")
-        if error_msg:
-            shape_speedups.append(FAILURE_PENALTY_SPEEDUP)
-            continue
-        latency = m.get("latency")
         latency_base = m.get("latency_base")
-        if latency is None or latency_base is None:
-            continue
-        latency = float(latency)
-        latency_base = float(latency_base)
-        if latency <= 0 or latency_base <= 0:
-            continue
-        shape_speedups.append(latency_base / latency)
+        latency = m.get("latency")
+
+        has_base = latency_base is not None and float(latency_base) > 0
+        has_latency = latency is not None and float(latency) > 0
+
+        if has_base and has_latency:
+            shape_speedups.append(float(latency_base) / float(latency))
+        elif has_base and not has_latency:
+            shape_speedups.append(FAILURE_PENALTY_SPEEDUP)
+        # else: baseline also failed or missing — skip this shape
 
     if not shape_speedups:
         return None
