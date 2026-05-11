@@ -145,6 +145,10 @@ def calculate_speedup(pr_result: Dict) -> Optional[float]:
 
     Each shape contributes equally to the result, preventing large shapes
     (with higher absolute latency) from dominating the average.
+
+    Shapes that failed (e.g. OOM) are penalized with FAILURE_PENALTY_SPEEDUP
+    rather than silently skipped, so implementations with poor memory efficiency
+    receive a lower score instead of being excluded from evaluation entirely.
     """
     pr_metrics = pr_result.get("result", [])
     if not pr_metrics:
@@ -152,6 +156,10 @@ def calculate_speedup(pr_result: Dict) -> Optional[float]:
 
     shape_speedups: List[float] = []
     for m in pr_metrics:
+        error_msg = m.get("error_msg")
+        if error_msg:
+            shape_speedups.append(FAILURE_PENALTY_SPEEDUP)
+            continue
         latency = m.get("latency")
         latency_base = m.get("latency_base")
         if latency is None or latency_base is None:

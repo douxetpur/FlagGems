@@ -12,6 +12,8 @@ Benchmark conventions (aligned with master branch benchmark/ directory):
   - Shapes designed to cover different tensor sizes (small to large)
 """
 
+import gc
+from dataclasses import asdict
 from typing import Generator
 
 import pytest
@@ -19,9 +21,117 @@ import torch
 
 import flag_gems
 from benchmark.base import Benchmark, generate_tensor_input
-from benchmark.consts import FLOAT_DTYPES
+from benchmark.conftest import Config, emit_record_logger, update_result
+from benchmark.consts import (
+    FLOAT_DTYPES,
+    BenchmarkMetrics,
+    BenchmarkResult,
+    OperationAttribute,
+)
 
 device = flag_gems.device
+
+
+class OOMTolerantBenchmark(Benchmark):
+    """Benchmark mixin that skips shapes on CUDA OOM instead of failing the test."""
+
+    def run(self):
+        if Config.query:
+            self.init_default_config()
+            attri = OperationAttribute(
+                op_name=self.op_name,
+                recommended_core_shapes=self.shapes,
+                shape_desc=self.shape_desc,
+            )
+            print(attri)
+            emit_record_logger(attri.to_dict())
+            return
+
+        self.init_user_config()
+        for dtype in self.to_bench_dtypes:
+            metrics = []
+            input_iter = self.get_input_iter(dtype)
+
+            done = False
+            while not done:
+                try:
+                    input = next(input_iter)
+                except StopIteration:
+                    done = True
+                    continue
+                except (RuntimeError, Exception) as e:
+                    print(
+                        f"\033[31mFAILED\033[0m: Operator={self.op_name} "
+                        f"dtype={dtype} err=<<<{e}>>>"
+                    )
+                    pytest.fail(str(e))
+
+                metric = BenchmarkMetrics()
+                try:
+                    args, kwargs = self.unpack_to_args_kwargs(input)
+                    metric.shape_detail = self.record_shapes(*args, **kwargs)
+                    if "latency_base" in self.to_bench_metrics:
+                        metric.latency_base = self.get_latency(
+                            self.torch_op, *args, **kwargs
+                        )
+                    if "latency" in self.to_bench_metrics:
+                        if self.gems_op:
+                            metric.latency = self.get_latency(
+                                self.gems_op, *args, **kwargs
+                            )
+                        else:
+                            if self.op_name == "zero_":
+                                with flag_gems.use_gems():
+                                    metric.latency = self.get_latency(
+                                        self.torch_op, *args, **kwargs
+                                    )
+                            else:
+                                with flag_gems.use_gems(exclude=["zero_"]):
+                                    metric.latency = self.get_latency(
+                                        self.torch_op, *args, **kwargs
+                                    )
+                    if "speedup" in self.to_bench_metrics:
+                        metric.speedup = metric.latency_base / metric.latency
+
+                    if "gbps" in self.to_bench_metrics:
+                        metric.gbps_base = self.get_gbps(
+                            args, latency=metric.latency_base
+                        )
+                        metric.gbps = self.get_gbps(args, latency=metric.latency)
+
+                    if "tflops" in self.to_bench_metrics:
+                        metric.tflops = (
+                            self.get_tflops(self.torch_op, *args, **kwargs)
+                            / metric.latency
+                            / 1e12
+                            * 1e3
+                        )
+                except (RuntimeError, Exception) as e:
+                    metric.error_msg = str(e)
+                    if "out of memory" in str(e).lower():
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        print(
+                            f"\033[33mOOM\033[0m: Operator={self.op_name} "
+                            f"shape={metric.shape_detail} dtype={dtype} — skipped"
+                        )
+                    else:
+                        pytest.fail(str(e))
+                finally:
+                    metrics.append(metric)
+                    gc.collect()
+
+            result = BenchmarkResult(
+                level=Config.bench_level.value,
+                op_name=self.op_name,
+                dtype=str(dtype),
+                mode=Config.mode.value,
+                result=metrics,
+            )
+            print(result)
+            update_result(self.op_name, asdict(result))
+            emit_record_logger(result.to_json())
+
 
 # ============================================================
 # 1. log10 — unary pointwise op
@@ -339,7 +449,7 @@ def test_perf_scatter_reduce():
 # ============================================================
 
 
-class MedianBenchmark(Benchmark):
+class MedianBenchmark(OOMTolerantBenchmark):
     def set_more_shapes(self):
         return [(1024, 2**i) for i in range(0, 14, 2)]
 
