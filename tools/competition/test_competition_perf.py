@@ -449,7 +449,15 @@ def test_perf_scatter_reduce():
 
 class MedianBenchmark(OOMTolerantBenchmark):
     def set_more_shapes(self):
-        return [(1024, 2**i) for i in range(0, 14, 2)]
+        # Reference: SortBenchmark and UnaryReductionBenchmark shapes from master.
+        # 2D only to avoid 1D OOM; covers small to large reduction dimensions.
+        return [
+            (1024, 1),
+            (1024, 512),
+            (1024, 4096),
+            (16, 128 * 1024),
+            (8, 256 * 1024),
+        ]
 
     def get_input_iter(self, cur_dtype) -> Generator:
         for shape in self.shapes:
