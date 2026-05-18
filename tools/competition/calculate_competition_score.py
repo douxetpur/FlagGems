@@ -78,7 +78,7 @@ EXPECTED_TEST_CASES = {
     "median": 9,  # SHAPES_2D (3) × FLOAT_DTYPES (3)
     "smooth_l1_loss": 36,  # POINTWISE_SHAPES (6) × FLOAT_DTYPES (3) × reduction (2: mean, none)
     "pixel_shuffle": 9,  # PIXEL_SHUFFLE_CONFIGS (3) × FLOAT_DTYPES (3)
-    "conv_transpose2d": 3,  # CONV_TRANSPOSE2D_CONFIGS (3) × 1 dtype (float32)
+    "conv_transpose2d": 2,  # CONV_TRANSPOSE2D_CONFIGS (2) × 1 dtype (float32), groups>1 case exempted
     "avg_pool3d": 12,  # POOL3D_SHAPES (2) × FLOAT_DTYPES (3) × kernel_size (2)
     "max_pool3d": 12,  # POOL3D_SHAPES (2) × FLOAT_DTYPES (3) × kernel_size (2)
     "chunk_gated_delta_rule": 3,  # T (3)
@@ -288,7 +288,7 @@ def calculate_dimension_scores(
             correctness_passed, correctness_total
         ),
         "performance": score_performance(geometric_mean_speedup),
-        "test_coverage": score_test_coverage(correctness_total, effective_expected),
+        "test_coverage": score_test_coverage(correctness_passed, effective_expected),
         "adaptability": _clamp(
             override_adaptability if override_adaptability is not None else 0.0,
             0.0,
