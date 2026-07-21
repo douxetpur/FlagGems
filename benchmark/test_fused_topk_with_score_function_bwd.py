@@ -14,7 +14,6 @@
 
 import pytest
 import torch
-import torch.nn.functional as F
 
 from flag_gems.fused.fused_topk_with_score_function_bwd import (
     fused_topk_with_score_function_bwd,
@@ -22,8 +21,19 @@ from flag_gems.fused.fused_topk_with_score_function_bwd import (
 
 from . import base
 
+# Importing TransformerEngine may configure the root logger. Keep the optional
+# import at module scope, consistent with the other TE benchmarks in this tree.
+try:
+    from transformer_engine.pytorch import cpp_extensions as tex
 
-def _torch_fused_topk_with_score_function_bwd(
+    TE_OP = getattr(tex, "fused_topk_with_score_function_bwd", None)
+    TE_AVAILABLE = True
+except ImportError:
+    TE_AVAILABLE = False
+    TE_OP = None
+
+
+def _te_fused_topk_with_score_function_bwd(
     routing_map,
     intermediate,
     grad_probs,
@@ -32,41 +42,20 @@ def _torch_fused_topk_with_score_function_bwd(
     scaling_factor=1.0,
     score_function=1,
 ):
-    """PyTorch baseline matching TransformerEngine backward semantics."""
-    grad = grad_probs.float() * scaling_factor
-    act = intermediate.float()
-    routed = routing_map.bool()
-
-    if score_function == 1:
-        masked_grad = torch.where(routed, grad, 0.0)
-        dot = (masked_grad * act).sum(dim=-1, keepdim=True)
-        if use_pre_softmax:
-            grad_logits = act * (masked_grad - dot)
-        else:
-            grad_logits = torch.where(routed, act * (grad - dot), 0.0)
-        return grad_logits.to(grad_probs.dtype)
-
-    if score_function == 2:
-        logits = act
-        act = torch.sqrt(F.softplus(logits))
-
-    if topk > 1:
-        sum_act = torch.where(routed, act, 0.0).sum(dim=-1, keepdim=True) + 1e-20
-        sum_grad_act = torch.where(routed, grad * act, 0.0).sum(dim=-1, keepdim=True)
-        grad = torch.where(
-            routed,
-            grad / sum_act - sum_grad_act / (sum_act * sum_act),
-            0.0,
-        )
-    else:
-        grad = torch.where(routed, grad, 0.0)
-
-    if score_function == 0:
-        grad_logits = grad * act * (1.0 - act)
-    else:
-        sigmoid = torch.sigmoid(logits)
-        grad_logits = grad * sigmoid / (2.0 * act + 1e-20)
-    return grad_logits.to(grad_probs.dtype)
+    """TransformerEngine CUDA baseline with the same allocating API as Gems."""
+    score_names = {0: "sigmoid", 1: "softmax", 2: "sqrtsoftplus"}
+    grad_logits = torch.empty_like(grad_probs)
+    TE_OP(
+        routing_map,
+        intermediate,
+        grad_probs,
+        grad_logits,
+        topk,
+        use_pre_softmax,
+        scaling_factor,
+        score_names[score_function],
+    )
+    return grad_logits
 
 
 class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
@@ -77,7 +66,7 @@ class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
         self.use_pre_softmax = use_pre_softmax
         super().__init__(
             op_name="fused_topk_with_score_function_bwd",
-            torch_op=_torch_fused_topk_with_score_function_bwd,
+            torch_op=_te_fused_topk_with_score_function_bwd,
             gems_op=fused_topk_with_score_function_bwd,
             dtypes=[torch.float16, torch.bfloat16, torch.float32],
         )
@@ -143,6 +132,11 @@ class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
 
 
 @pytest.mark.fused_topk_with_score_function_bwd
+@pytest.mark.skipif(not TE_AVAILABLE, reason="TransformerEngine not installed")
+@pytest.mark.skipif(
+    TE_OP is None,
+    reason="'fused_topk_with_score_function_bwd' not found in TransformerEngine",
+)
 @pytest.mark.parametrize(
     ("score_function", "use_pre_softmax"),
     [(0, True), (1, True), (1, False), (2, True)],
