@@ -15,8 +15,8 @@
 import pytest
 import torch
 
-from flag_gems.fused.fused_topk_with_score_function_bwd import (
-    fused_topk_with_score_function_bwd,
+from flag_gems.fused.te_fused_topk_with_score_function_bwd import (
+    te_fused_topk_with_score_function_bwd,
 )
 
 from . import base
@@ -65,9 +65,9 @@ class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
         self.score_function = score_function
         self.use_pre_softmax = use_pre_softmax
         super().__init__(
-            op_name="fused_topk_with_score_function_bwd",
+            op_name="te_fused_topk_with_score_function_bwd",
             torch_op=_te_fused_topk_with_score_function_bwd,
-            gems_op=fused_topk_with_score_function_bwd,
+            gems_op=te_fused_topk_with_score_function_bwd,
             dtypes=[torch.float16, torch.bfloat16, torch.float32],
         )
 
@@ -131,7 +131,7 @@ class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
             )
 
 
-@pytest.mark.fused_topk_with_score_function_bwd
+@pytest.mark.te_fused_topk_with_score_function_bwd
 @pytest.mark.skipif(not TE_AVAILABLE, reason="TransformerEngine not installed")
 @pytest.mark.skipif(
     TE_OP is None,

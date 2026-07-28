@@ -1,11 +1,21 @@
-# Copyright (c) 2024, FlagGems. All rights reserved.
-# Licensed under the Apache License, Version 2.0
+# Copyright 2026 FlagOS Contributors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import pytest
 import torch
 
-from flag_gems.fused.fused_topk_with_score_function_bwd import (
-    fused_topk_with_score_function_bwd,
+from flag_gems.fused.te_fused_topk_with_score_function_bwd import (
     te_fused_topk_with_score_function_bwd,
 )
 
@@ -18,7 +28,7 @@ except ImportError:
     TE_AVAILABLE = False
     TE_OP = None
 
-pytestmark = pytest.mark.fused_topk_with_score_function_bwd
+pytestmark = pytest.mark.te_fused_topk_with_score_function_bwd
 
 
 def _sigmoid(x):
@@ -141,7 +151,7 @@ class TestFusedTopkScoreFnBwdSigmoid:
         )
         grad_probs = grad_probs.to(dtype)
 
-        result = fused_topk_with_score_function_bwd(
+        result = te_fused_topk_with_score_function_bwd(
             routing_map,
             intermediate,
             grad_probs,
@@ -174,7 +184,7 @@ class TestFusedTopkScoreFnBwdSoftmax:
         )
         grad_probs = grad_probs.to(dtype)
 
-        result = fused_topk_with_score_function_bwd(
+        result = te_fused_topk_with_score_function_bwd(
             routing_map,
             intermediate,
             grad_probs,
@@ -207,7 +217,7 @@ class TestFusedTopkScoreFnBwdSqrtsoftplus:
         )
         grad_probs = grad_probs.to(dtype)
 
-        result = fused_topk_with_score_function_bwd(
+        result = te_fused_topk_with_score_function_bwd(
             routing_map,
             intermediate,
             grad_probs,
@@ -233,7 +243,7 @@ def test_scaling_factor(scaling_factor):
         num_tokens, num_experts, topk, 0, torch.float32, device
     )
 
-    result = fused_topk_with_score_function_bwd(
+    result = te_fused_topk_with_score_function_bwd(
         routing_map,
         intermediate,
         grad_probs,
