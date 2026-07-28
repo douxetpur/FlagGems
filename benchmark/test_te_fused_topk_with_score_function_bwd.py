@@ -27,9 +27,7 @@ try:
     from transformer_engine.pytorch import cpp_extensions as tex
 
     TE_OP = getattr(tex, "fused_topk_with_score_function_bwd", None)
-    TE_AVAILABLE = True
 except ImportError:
-    TE_AVAILABLE = False
     TE_OP = None
 
 
@@ -74,6 +72,78 @@ def _te_fused_topk_with_score_function_bwd(
     return grad_logits.to(grad_probs.dtype)
 
 
+def _pytorch_fused_topk_with_score_function_bwd(
+    routing_map,
+    intermediate,
+    grad_probs,
+    topk,
+    use_pre_softmax=True,
+    scaling_factor=1.0,
+    score_function=1,
+):
+    """PyTorch reference baseline used when TransformerEngine is unavailable."""
+    grad = grad_probs.float() * scaling_factor
+    act = intermediate.float()
+    routed = routing_map.bool()
+
+    if score_function == 1:
+        if use_pre_softmax:
+            masked_grad = torch.where(routed, grad, torch.zeros_like(grad))
+            dot = (masked_grad * act).sum(dim=-1, keepdim=True)
+            result = act * (masked_grad - dot)
+        else:
+            dot = (grad * act * routed).sum(dim=-1, keepdim=True)
+            result = torch.where(routed, act * (grad - dot), torch.zeros_like(grad))
+        return result.to(grad_probs.dtype)
+
+    if score_function == 0:
+        act_val = act
+    else:
+        softplus = torch.where(act > 20.0, act, torch.log1p(torch.exp(act)))
+        act_val = torch.sqrt(softplus)
+
+    if topk > 1:
+        sum_act = (act_val * routed).sum(dim=-1, keepdim=True) + 1e-20
+        sum_grad_act = (grad * act_val * routed).sum(dim=-1, keepdim=True)
+        result = torch.where(
+            routed,
+            grad / sum_act - sum_grad_act / (sum_act * sum_act),
+            torch.zeros_like(grad),
+        )
+    else:
+        result = torch.where(routed, grad, torch.zeros_like(grad))
+
+    if score_function == 0:
+        result = result * act_val * (1.0 - act_val)
+    else:
+        sig = 1.0 / (1.0 + torch.exp(-act))
+        dy_dx = torch.where(
+            act > 20.0,
+            1.0 / (2.0 * act_val + 1e-20),
+            sig / (2.0 * act_val + 1e-20),
+        )
+        result = result * dy_dx
+
+    return result.to(grad_probs.dtype)
+
+
+def _baseline_fused_topk_with_score_function_bwd(*args, **kwargs):
+    if TE_OP is not None:
+        return _te_fused_topk_with_score_function_bwd(*args, **kwargs)
+    return _pytorch_fused_topk_with_score_function_bwd(*args, **kwargs)
+
+
+BENCHMARK_CASES = [
+    (0, True),
+    (1, True),
+    (1, False),
+]
+BENCHMARK_IDS = ["sigmoid", "softmax_pre", "softmax_post"]
+if TE_OP is None:
+    BENCHMARK_CASES.append((2, True))
+    BENCHMARK_IDS.append("sqrtsoftplus")
+
+
 class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
     DEFAULT_SHAPE_DESC = "num_tokens, num_experts, topk"
 
@@ -82,7 +152,7 @@ class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
         self.use_pre_softmax = use_pre_softmax
         super().__init__(
             op_name="te_fused_topk_with_score_function_bwd",
-            torch_op=_te_fused_topk_with_score_function_bwd,
+            torch_op=_baseline_fused_topk_with_score_function_bwd,
             gems_op=te_fused_topk_with_score_function_bwd,
             dtypes=[torch.float16, torch.bfloat16, torch.float32],
         )
@@ -148,29 +218,12 @@ class FusedTopkWithScoreFunctionBwdBenchmark(base.Benchmark):
 
 
 @pytest.mark.te_fused_topk_with_score_function_bwd
-@pytest.mark.skipif(not TE_AVAILABLE, reason="TransformerEngine not installed")
-@pytest.mark.skipif(
-    TE_OP is None,
-    reason="'fused_topk_with_score_function_bwd' not found in TransformerEngine",
-)
 @pytest.mark.parametrize(
     ("score_function", "use_pre_softmax"),
-    [
-        (0, True),
-        (1, True),
-        (1, False),
-        pytest.param(
-            2,
-            True,
-            marks=pytest.mark.skip(
-                reason=(
-                    "sqrtsoftplus vs TE is deferred until the matching fwd op "
-                    "is added; covered by reference tests for now"
-                )
-            ),
-        ),
-    ],
-    ids=["sigmoid", "softmax_pre", "softmax_post", "sqrtsoftplus"],
+    BENCHMARK_CASES,
+    # With TE installed, sqrtsoftplus is deferred until the matching fwd op is
+    # added. Without TE, it can still benchmark against the PyTorch reference.
+    ids=BENCHMARK_IDS,
 )
 def test_fused_topk_with_score_function_bwd_benchmark(score_function, use_pre_softmax):
     FusedTopkWithScoreFunctionBwdBenchmark(

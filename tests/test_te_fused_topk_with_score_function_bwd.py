@@ -24,9 +24,7 @@ try:
 
     TE_OP = getattr(tex, "fused_topk_with_score_function_bwd", None)
     TE_FWD = getattr(tex, "fused_topk_with_score_function_fwd", None)
-    TE_AVAILABLE = TE_OP is not None
 except ImportError:
-    TE_AVAILABLE = False
     TE_OP = None
     TE_FWD = None
 
@@ -306,15 +304,50 @@ def _te_reference_bwd(
     return grad_logits.to(grad_probs.dtype)
 
 
-@pytest.mark.skipif(
-    not TE_AVAILABLE, reason="TransformerEngine not installed or op unavailable"
-)
+def _baseline_reference_bwd(
+    routing_map,
+    intermediate,
+    grad_probs,
+    topk,
+    use_pre_softmax,
+    scaling_factor,
+    score_function,
+):
+    """Use TE native reference when available, otherwise PyTorch reference."""
+    if TE_OP is not None:
+        return _te_reference_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk,
+            use_pre_softmax,
+            scaling_factor,
+            score_function,
+        )
+    if score_function == 0:
+        return _reference_sigmoid_bwd(
+            routing_map, intermediate, grad_probs, topk, scaling_factor
+        )
+    if score_function == 1:
+        return _reference_softmax_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk,
+            scaling_factor,
+            use_pre_softmax,
+        )
+    return _reference_sqrtsoftplus_bwd(
+        routing_map, intermediate, grad_probs, topk, scaling_factor
+    )
+
+
 @pytest.mark.parametrize("num_tokens", [1, 16, 128, 512])
 @pytest.mark.parametrize("num_experts", [8, 64, 256])
 @pytest.mark.parametrize("topk", [1, 2, 8])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 class TestFusedTopkScoreFnBwdVsTE:
-    """Compare FlagGems backward against TransformerEngine CUDA baseline."""
+    """Compare FlagGems against TE native or PyTorch reference fallback."""
 
     def _make_inputs(
         self,
@@ -393,7 +426,7 @@ class TestFusedTopkScoreFnBwdVsTE:
             scaling_factor=scaling_factor,
             score_function=0,
         )
-        expected = _te_reference_bwd(
+        expected = _baseline_reference_bwd(
             routing_map,
             intermediate,
             grad_probs,
@@ -423,7 +456,7 @@ class TestFusedTopkScoreFnBwdVsTE:
             scaling_factor=scaling_factor,
             score_function=1,
         )
-        expected = _te_reference_bwd(
+        expected = _baseline_reference_bwd(
             routing_map,
             intermediate,
             grad_probs,
@@ -453,7 +486,7 @@ class TestFusedTopkScoreFnBwdVsTE:
             scaling_factor=scaling_factor,
             score_function=1,
         )
-        expected = _te_reference_bwd(
+        expected = _baseline_reference_bwd(
             routing_map,
             intermediate,
             grad_probs,
@@ -468,10 +501,11 @@ class TestFusedTopkScoreFnBwdVsTE:
     def test_sqrtsoftplus_vs_te(self, num_tokens, num_experts, topk, dtype):
         if topk > num_experts:
             pytest.skip("topk > num_experts")
-        pytest.skip(
-            "sqrtsoftplus vs TE is deferred until the matching fwd op is added; "
-            "covered by the Python reference test for now"
-        )
+        if TE_OP is not None:
+            pytest.skip(
+                "sqrtsoftplus vs TE is deferred until the matching fwd op is added; "
+                "covered by the Python reference test for now"
+            )
         device = "cuda"
         scaling_factor = 1.0
         routing_map, intermediate, grad_probs = self._make_inputs(
@@ -486,7 +520,7 @@ class TestFusedTopkScoreFnBwdVsTE:
             scaling_factor=scaling_factor,
             score_function=2,
         )
-        expected = _te_reference_bwd(
+        expected = _baseline_reference_bwd(
             routing_map,
             intermediate,
             grad_probs,
