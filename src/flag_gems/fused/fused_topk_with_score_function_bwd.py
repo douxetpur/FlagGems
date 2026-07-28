@@ -209,7 +209,7 @@ def _fused_topk_score_fn_bwd_sqrtsoftplus_kernel(
     )
 
 
-def fused_topk_with_score_function_bwd(
+def te_fused_topk_with_score_function_bwd(
     routing_map: torch.Tensor,
     intermediate: torch.Tensor,
     grad_probs: torch.Tensor,

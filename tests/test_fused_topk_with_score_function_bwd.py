@@ -6,7 +6,17 @@ import torch
 
 from flag_gems.fused.fused_topk_with_score_function_bwd import (
     fused_topk_with_score_function_bwd,
+    te_fused_topk_with_score_function_bwd,
 )
+
+try:
+    from transformer_engine.pytorch import cpp_extensions as tex
+
+    TE_OP = getattr(tex, "fused_topk_with_score_function_bwd", None)
+    TE_AVAILABLE = TE_OP is not None
+except ImportError:
+    TE_AVAILABLE = False
+    TE_OP = None
 
 pytestmark = pytest.mark.fused_topk_with_score_function_bwd
 
@@ -237,6 +247,183 @@ def test_scaling_factor(scaling_factor):
     )
 
     torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+
+
+def _te_reference_bwd(
+    routing_map,
+    intermediate,
+    grad_probs,
+    topk,
+    use_pre_softmax,
+    scaling_factor,
+    score_function,
+):
+    """Call TransformerEngine's CUDA kernel as reference."""
+    score_names = {0: "sigmoid", 1: "softmax", 2: "sqrtsoftplus"}
+    grad_logits = torch.empty_like(grad_probs)
+    TE_OP(
+        routing_map,
+        intermediate,
+        grad_probs,
+        grad_logits,
+        topk,
+        use_pre_softmax,
+        scaling_factor,
+        score_names[score_function],
+    )
+    return grad_logits
+
+
+@pytest.mark.skipif(
+    not TE_AVAILABLE, reason="TransformerEngine not installed or op unavailable"
+)
+@pytest.mark.parametrize("num_tokens", [1, 16, 128, 512])
+@pytest.mark.parametrize("num_experts", [8, 64, 256])
+@pytest.mark.parametrize("topk", [1, 2, 8])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+class TestFusedTopkScoreFnBwdVsTE:
+    """Compare FlagGems backward against TransformerEngine CUDA baseline."""
+
+    def _make_inputs(
+        self, num_tokens, num_experts, topk, score_function, dtype, device
+    ):
+        logits = torch.randn(
+            num_tokens, num_experts, device=device, dtype=torch.float32
+        )
+        _, topk_indices = logits.topk(topk, dim=-1)
+        routing_map = torch.zeros(
+            num_tokens, num_experts, dtype=torch.bool, device=device
+        )
+        routing_map.scatter_(1, topk_indices, True)
+
+        if score_function == 0:
+            intermediate = torch.sigmoid(logits)
+        elif score_function == 1:
+            intermediate = torch.softmax(logits, dim=-1)
+        else:
+            intermediate = logits.clone()
+
+        intermediate = intermediate.float()
+        grad_probs = torch.randn(num_tokens, num_experts, device=device, dtype=dtype)
+        return routing_map, intermediate, grad_probs
+
+    def test_sigmoid_vs_te(self, num_tokens, num_experts, topk, dtype):
+        if topk > num_experts:
+            pytest.skip("topk > num_experts")
+        device = "cuda"
+        scaling_factor = 1.0
+        routing_map, intermediate, grad_probs = self._make_inputs(
+            num_tokens, num_experts, topk, 0, dtype, device
+        )
+
+        result = te_fused_topk_with_score_function_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk=topk,
+            scaling_factor=scaling_factor,
+            score_function=0,
+        )
+        expected = _te_reference_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk,
+            True,
+            scaling_factor,
+            0,
+        )
+
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+
+    def test_softmax_pre_vs_te(self, num_tokens, num_experts, topk, dtype):
+        if topk > num_experts:
+            pytest.skip("topk > num_experts")
+        device = "cuda"
+        scaling_factor = 1.0
+        routing_map, intermediate, grad_probs = self._make_inputs(
+            num_tokens, num_experts, topk, 1, dtype, device
+        )
+
+        result = te_fused_topk_with_score_function_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk=topk,
+            use_pre_softmax=True,
+            scaling_factor=scaling_factor,
+            score_function=1,
+        )
+        expected = _te_reference_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk,
+            True,
+            scaling_factor,
+            1,
+        )
+
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+
+    def test_softmax_post_vs_te(self, num_tokens, num_experts, topk, dtype):
+        if topk > num_experts:
+            pytest.skip("topk > num_experts")
+        device = "cuda"
+        scaling_factor = 1.0
+        routing_map, intermediate, grad_probs = self._make_inputs(
+            num_tokens, num_experts, topk, 1, dtype, device
+        )
+
+        result = te_fused_topk_with_score_function_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk=topk,
+            use_pre_softmax=False,
+            scaling_factor=scaling_factor,
+            score_function=1,
+        )
+        expected = _te_reference_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk,
+            False,
+            scaling_factor,
+            1,
+        )
+
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
+
+    def test_sqrtsoftplus_vs_te(self, num_tokens, num_experts, topk, dtype):
+        if topk > num_experts:
+            pytest.skip("topk > num_experts")
+        device = "cuda"
+        scaling_factor = 1.0
+        routing_map, intermediate, grad_probs = self._make_inputs(
+            num_tokens, num_experts, topk, 2, dtype, device
+        )
+
+        result = te_fused_topk_with_score_function_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk=topk,
+            scaling_factor=scaling_factor,
+            score_function=2,
+        )
+        expected = _te_reference_bwd(
+            routing_map,
+            intermediate,
+            grad_probs,
+            topk,
+            True,
+            scaling_factor,
+            2,
+        )
+
+        torch.testing.assert_close(result, expected, rtol=1e-3, atol=1e-3)
 
 
 if __name__ == "__main__":
