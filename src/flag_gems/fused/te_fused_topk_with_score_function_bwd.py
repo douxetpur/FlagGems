@@ -168,8 +168,9 @@ def _fused_topk_score_fn_bwd_sqrtsoftplus_kernel(
     """Backward kernel for sqrtsoftplus score function.
 
     intermediate stores original logits x.
-    Forward: act = sqrt(softplus(x)) = sqrt(log(1 + exp(x))).
-    Backward: dy/dx = sigmoid(x) / (2 * y).
+    Forward: act = sqrt(softplus(x)).
+    Backward: dy/dx = sigmoid(x) / (2 * y), or 1 / (2 * y) when
+    x > 20 and softplus(x) is approximated by x.
     """
     pid = tl.program_id(0)
     if pid >= num_tokens:
@@ -195,8 +196,10 @@ def _fused_topk_score_fn_bwd_sqrtsoftplus_kernel(
         tl.load(routing_map_ptr + row_base + expert_offsets, mask=mask, other=0) > 0
     )
 
-    # Recompute sqrtsoftplus
-    sp = tl.where(x > 20.0, x, tl.log(1.0 + tl.exp(x)))
+    # Recompute sqrtsoftplus. TE uses log1pf(expf(x)); for negative x,
+    # log(1 + exp(x)) loses the small term once it is below fp32 epsilon.
+    sp_mid = tl.log(1.0 + tl.exp(x))
+    sp = tl.where(x > 20.0, x, tl.where(x < -10.0, tl.exp(x), sp_mid))
     act_val = tl.sqrt(sp)
 
     # Normalization backward (topk > 1)
@@ -208,9 +211,13 @@ def _fused_topk_score_fn_bwd_sqrtsoftplus_kernel(
     else:
         g = tl.where(routed, g, 0.0)
 
-    # Sqrtsoftplus backward: dy/dx = sigmoid(x) / (2 * y)
+    # Sqrtsoftplus backward follows TE's large-x softplus approximation.
     sig = 1.0 / (1.0 + tl.exp(-x))
-    dy_dx = sig / (2.0 * act_val + EPSILON)
+    dy_dx = tl.where(
+        x > 20.0,
+        1.0 / (2.0 * act_val + EPSILON),
+        sig / (2.0 * act_val + EPSILON),
+    )
     g = g * dy_dx
 
     tl.store(
