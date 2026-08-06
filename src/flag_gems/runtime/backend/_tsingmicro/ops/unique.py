@@ -288,7 +288,7 @@ def _unique2(
     return_inverse: bool = False,
     return_counts: bool = False,
 ):
-    logger.debug("GEMS TSINGMICRO _UNIQUE2")
+    logger.debug("GEMS_TSINGMICRO _UNIQUE2")
     if in0.dtype in (torch.int16, torch.int32) and in0.numel() > 8192:
         min_value = in0.min().item()
         max_value = in0.max().item()
