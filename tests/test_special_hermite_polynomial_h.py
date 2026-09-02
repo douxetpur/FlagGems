@@ -37,12 +37,13 @@ def test_special_hermite_polynomial_h(shape, dtype):
     with flag_gems.use_gems():
         res_out = torch.special.hermite_polynomial_h(inp, n)
 
-    # Hermite polynomials use float32 intermediates, so per-dtype tolerances
-    # are needed to account for accumulated floating-point errors.
+    # gems uses the same in-dtype recurrence as PyTorch. float64 matches the
+    # reference to default precision; float32 only needs a small atol to cover
+    # accumulated rounding near the polynomial's roots (values ~1).
     if dtype == torch.float32:
-        utils.gems_assert_close(res_out, ref_out, dtype, atol=500.0)
+        utils.gems_assert_close(res_out, ref_out, dtype, atol=5.0)
     else:
-        utils.gems_assert_close(res_out, ref_out, dtype, atol=1000.0)
+        utils.gems_assert_close(res_out, ref_out, dtype)
 
 
 @pytest.mark.special_hermite_polynomial_h
@@ -62,11 +63,13 @@ def test_special_hermite_polynomial_h_scalar(shape, dtype):
     with flag_gems.use_gems():
         res_out = torch.special.hermite_polynomial_h(inp, n)
 
-    # n=9 produces the largest Hermite polynomial values; relax tolerance.
+    # gems uses the same in-dtype recurrence as PyTorch. float64 matches the
+    # reference to default precision; float32 only needs a small atol to cover
+    # accumulated rounding near the polynomial's roots (values ~1).
     if dtype == torch.float32:
-        utils.gems_assert_close(res_out, ref_out, dtype, atol=500.0)
+        utils.gems_assert_close(res_out, ref_out, dtype, atol=5.0)
     else:
-        utils.gems_assert_close(res_out, ref_out, dtype, atol=1000.0)
+        utils.gems_assert_close(res_out, ref_out, dtype)
 
 
 @pytest.mark.special_hermite_polynomial_h
